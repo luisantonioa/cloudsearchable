@@ -76,15 +76,18 @@ module Cloudsearchable
 
     # Add or replace the CloudSearch document for a particular version of a record
     def post_record record, record_id, version
-      ActiveSupport::Notifications.instrument('cloudsearchable.post_record') do
-        CloudSearch.post_sdf doc_endpoint, addition_sdf(record, record_id, version)
+      document = addition_sdf(record, record_id, version)
+      payload  = document.dup.tap{|d|d.delete(:fields)}
+      ActiveSupport::Notifications.instrument('cloudsearchable.post_record', payload) do
+        CloudSearch.post_sdf doc_endpoint, document
       end
     end
 
     # Delete the CloudSearch document for a particular record (version must be greater than the last version pushed)
     def delete_record record_id, version
-      ActiveSupport::Notifications.instrument('cloudsearchable.delete_record') do
-        CloudSearch.post_sdf doc_endpoint, deletion_sdf(record_id, version)
+      document = deletion_sdf(record_id, version)
+      ActiveSupport::Notifications.instrument('cloudsearchable.delete_record', document) do
+        CloudSearch.post_sdf doc_endpoint, document
       end
     end
 
@@ -92,7 +95,7 @@ module Cloudsearchable
       uri    = URI("http://#{search_endpoint}/#{CloudSearch::API_VERSION}/search")
       uri.query = URI.encode_www_form(params)
       Cloudsearchable.logger.info "CloudSearch execute: #{uri.to_s}"
-      res = ActiveSupport::Notifications.instrument('cloudsearchable.execute_query') do
+      res = ActiveSupport::Notifications.instrument('cloudsearchable.execute_query', params) do
         Net::HTTP.get_response(uri).body
       end
       JSON.parse(res)
@@ -130,8 +133,9 @@ module Cloudsearchable
     #
     def cloudsearch_domain(force_reload = false)
       if(force_reload || !@domain)
-        @domain = ActiveSupport::Notifications.instrument('cloudsearchable.describe_domains') do
-          CloudSearch.client.describe_domains(:domain_names => [name])
+        options = {:domain_names => [name]}
+        @domain = ActiveSupport::Notifications.instrument('cloudsearchable.describe_domains', options) do
+          CloudSearch.client.describe_domains(options)
         end
       else
         @domain
